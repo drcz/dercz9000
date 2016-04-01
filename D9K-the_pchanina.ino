@@ -1,25 +1,26 @@
 //////////////////////////////////////////////////////////////////
 ///                     -= PCHANINA 1.0 =-
 ///        a silly game for the dercz9000 video console
-///             Alicante 2016.03.25-30, drcz@tlen.pl
+///           Alicante 2016.03.25-04.02, drcz@tlen.pl
 //////////////////////////////////////////////////////////////////
+
 ///     I state this only once: USE AT YOUR OWN RISK.
+
 /// If it fries your TVset, your arduino, or both, that's
 /// neither my responsibility, nor my business.
 
-/// TODO "you won" surprise screen
-/// TODO status bar or leds for keys and lives.
-/// TODO shrink memory usage (pending)
+/// TODO do something with gamepads "oversensitivity".
 /// TODO more/better levels
 /// TODO disclaimer, game description, comments +schematics?
+/// TODO perhaps get rid of fontALL?
 
 
 /// THE drcz9000 VIDEO CONSOLE ///////////////////////////////////
 
-/// The console utilizes the divine tvout library by Myles Metzer.
+/// The "console" utilizes the divine Myles Metzer's TVout library
 /// -- cf http://playground.arduino.cc/Main/TVout
 #include <TVout.h>
-#include <fontALL.h> /// TODO moze tylko 8x8 i 4x6?
+#include <fontALL.h>
 #include <avr/pgmspace.h>
 
 TVout TV;
@@ -30,8 +31,7 @@ void setup_tv() {
   TV.begin(PAL,120,96);
   TV.clear_screen();  
 }
-/// note that now TVout utilizes 16*96=1536B,
-/// no we're left with less than 0.5KB of SRAM (cf below).
+/// note that now TVout utilizes 16*96=1536B.
 
 /// "The gamepad", ie 4 switches, I connect to pins 3-6.
 /// I've picked them because TVout utilizes only pins >6.
@@ -47,27 +47,30 @@ void setup_gamepad() {
   pinMode(BTN_RIGHT,INPUT);
 }
 
-/// In order to abstract from these choices, we introduce
-/// a "joystick" datastructure, so that if you prefer to use
-/// some other device, just modify the refresh_joystick():
 struct {
-  char dx,dy; /// they both range {-1,0,1}
+  //  byte pressed_dir : 3; TODO!!!!!!
+  //  byte released_dir: 3;
+  byte dir; /// : 3? who cares
 } the_joystick;
 
-/// this one we will call more than once in each game cycle...
+/// interpretation of dir field.
+/// had to add "d" prefix because of name clash or sth...
+enum {dCENTER,dUP,dLEFT,dDOWN,dRIGHT};
+
+/// this one we will call more than once in each game cycle.
+/// If you prefer other controlling device, just modify this:
 void refresh_joystick() {
-  if(digitalRead(BTN_LEFT)) the_joystick.dx=-1;
-  else if(digitalRead(BTN_RIGHT)) the_joystick.dx=1;
-  else if(digitalRead(BTN_UP)) the_joystick.dy=-1;
-  else if(digitalRead(BTN_DOWN)) the_joystick.dy=1;
+  if(digitalRead(BTN_LEFT)) the_joystick.dir=dLEFT;
+  else if(digitalRead(BTN_RIGHT)) the_joystick.dir=dRIGHT;
+  else if(digitalRead(BTN_UP)) the_joystick.dir=dUP;
+  else if(digitalRead(BTN_DOWN)) the_joystick.dir=dDOWN;
   /// NB we disallow "diagonal" moves (eg left+up).
 }
-
-/// ...so after it's finally used as input, we need to reset it:
-void reset_joystick() { the_joystick.dx=the_joystick.dy=0; }
-
 /// TODO sometimes it does "two moves instead of one"
 /// -- try to fix it by waiting for button's release?
+
+/// ...so after it's finally used as input, we need to reset it:
+void reset_joystick() { the_joystick.dir=dCENTER; }
 
 
 /// THE GAME'S WORLD /////////////////////////////////////////////
@@ -82,18 +85,6 @@ enum {EMPTY,
       ANT,
       ACTOR,
       N_O_TYPES};
-
-/// the actor == player's avatar.
-/// NB the position and facing are in things[], below.
-struct {
-  unsigned char current_level; /// the level we're at
-  unsigned char lives; /// lives left
-  unsigned char niderite_left; /// when 0 we move to next level
-  unsigned char dead; /// TODO this one is not needed anymore
-  unsigned char keys; /// number of carried keys
-} actor; /// maybe it should rather be called "game_stats"?
-
-#define MAX_LIVES 3 /// ha!
 
 /// Now, the first thing I found out the hard way was that
 /// UNO has only 2KB of SRAM, most of which is being consumed
@@ -110,30 +101,55 @@ struct {
 #define MAP_W 23 /// HEIL
 #define MAP_H 23 /// ERIS
 
-extern const unsigned char levels[N_O_LEVELS][MAP_H][MAP_W+1];
+extern const byte levels[N_O_LEVELS][MAP_H][MAP_W+1];
 /// cf the end of this file -- and notice levels contain also
-/// the starting positoins for ants, niderite and actor.
-/// novum: AND locks and keys.
+/// the starting positoins for ants, niderite, actor, locks&keys;
 /// these ones we will interpret as EMPTY (ie "floor").
 
-/// ...and use SRAM only for dynamic things (ants/niderite/actor)
-/// AND LOCKS AND DOORS
-
-#define MAX_N_O_THINGS 33
-unsigned char n_o_things;
+/// We'll use SRAM only for "dynamic" things (ants, niderite etc):
+#define MAX_N_O_THINGS 33 // ?!
+/// I initially wanted to do some oldschool prickwaving like:
+/// #define THING_X(I) (((things[I])&0xf800)>>11)
+/// #d. THING_SET_X(I,X) (things[I]=((thing[I])&0x07ff)+((X)<<11))
+/// BUT then Panicz Godek had threatened me with spanking (!)
+/// so I cowardly retreat. (Thank Satan I didn't show him the rest
+/// of this crap). Anyway: no bitshifts. Godekstyle -- bitfields!
 struct {
-  unsigned char x,y,type;
-  char dx,dy;
+  unsigned x : 5;
+  unsigned y : 5;
+  unsigned dir : 3;
+  unsigned type : 3;
 } things[MAX_N_O_THINGS];
-/// TODO the above can be shrunk to 2B per thing (notebook)
+/// Actually it's quite handy. And no spanking!
 
+inline byte bounce_dir(byte dir) {
+  switch(dir) {
+  case dUP: return dDOWN;
+  case dDOWN: return dUP;
+  case dLEFT: return dRIGHT;
+  case dRIGHT: return dLEFT;
+  default: return dCENTER;
+  }
+}
+
+/// the actor, ie player's avatar.
+#define MAX_LIVES 3 /// come on, it's not a cat.
+#define MAX_KEYS 4  /// come on, it's not a... doorman?
+
+struct {
+  byte current_level : 5; /// the level we're at (32 levels?!)
+  byte niderite_left : 6; /// when 0, move to next level.
+  byte lives : 2; /// lives left. not much :)
+  byte dead : 1; /// we could avoid using it, but... we don't.
+  byte keys : 2; /// number of carried keys.
+} actor;
 
 /// One thing we want for sure is to find the thing at x,y.
 /// We pick the convention of returning MAX_N_O_THINGS if
 /// no thing is preset in there.
-unsigned char index_of_thing_at(unsigned char x,unsigned char y) {
-  unsigned char i;
-  for(i=0;i<n_o_things;i++) {
+byte index_of_thing_at(byte x,byte y) {
+  byte i;
+  for(i=0;i<MAX_N_O_THINGS;i++) {
     if(things[i].type!=EMPTY /// dismiss empty slots
        && things[i].x==x
        && things[i].y==y) {
@@ -143,238 +159,160 @@ unsigned char index_of_thing_at(unsigned char x,unsigned char y) {
   return MAX_N_O_THINGS;
 }
 
-/// Therefore to find out what's on the map, we first check the
-/// things, and if no [interesting] thing is found, we revert to
+/// To find out what's on a given location, first check things[],
+/// and if no [interesting] thing is found, we revert to the
 /// static map from flash memory (note the pgm_read_byte, cf
-/// https://www.arduino.cc/en/Reference/PROGMEM )
-/// Notice the use of short (it could be signed char actually),
-/// for convenience of displaying... you'll see it soon.
+/// https://www.arduino.cc/en/Reference/PROGMEM).
+/// Notice we use signed coordinates --  for convenience of
+/// displaying... you'll see it soon.
 /// Also, we remove thing by switching it's type to EMPTY.
-unsigned char read_map_at(short x,short y) {
-  unsigned char i;
+byte read_map_at(char x,char y) {
+  byte i;
   /// outside the map area is just dirt
   if(x<0 || y<0 || x>=MAP_W || y>=MAP_H) return DIRT;
   /// a thing maybe?
-  i=index_of_thing_at(x,y);
-  if(i<n_o_things) return things[i].type;
+  i=index_of_thing_at((byte)x,(byte)y);
+  if(i<MAX_N_O_THINGS) return things[i].type;
   /// nope, therefore use the static map.
   switch(pgm_read_byte(&levels[actor.current_level][y][x])) {
   case '#': return WALL;
-  case '.':
-  case 's': /// ignore the "starting position" of the actor
-  case 'O': /// and niderite crystals
-  case 'k': /// and keys [!]
-  case 'l': /// and locks ...
-  case '^': /// and the ants...
-  case 'v':
-  case '>':
-  case '<': return EMPTY;
-  default: return DIRT;
+  case ' ': return DIRT;
+  default: return EMPTY;
   }
 }
 
 /// In order to initialize given level, we need to set things up:
-void initialize_level(unsigned char level) {
-  unsigned char i,j;
-  actor.current_level=level;
+void initialize_level() {
+  byte i,j,next_index=0;
   actor.dead=0;
   actor.niderite_left=0;
   actor.keys=0;
+  /// actually we don't need to clean this...
   for(i=0;i<MAX_N_O_THINGS;i++) things[i].type=EMPTY;
-  n_o_things=0;
-  /// we'll make the actor our first thing; facing down (shyness?)
-  things[n_o_things].dx=0; things[n_o_things].dy=1;
-  things[n_o_things++].type=ACTOR; 
+  /// we'll make the actor our first thing; facing down:
+  things[next_index].type=ACTOR; things[next_index++].dir=dDOWN;
   for(i=0;i<MAP_W;i++)
-    for(j=0;j<MAP_H;j++)
-      /// the following switch is wet. so what?
-      switch(pgm_read_byte(&levels[level][j][i])) {
-      case 's':
-	things[0].x=i; things[0].y=j;
-	break;
-      case 'k':
-	things[n_o_things].x=i; things[n_o_things].y=j;
-        things[n_o_things].dx=things[n_o_things].dy=0;
-        things[n_o_things++].type=KEY;
-	break;
-      case 'l':
-	things[n_o_things].x=i; things[n_o_things].y=j;
-        things[n_o_things].dx=things[n_o_things].dy=0;
-        things[n_o_things++].type=LOCK;
-	break;
+    for(j=0;j<MAP_H;j++) {
+      things[next_index].x=i; things[next_index].y=j;
+      things[next_index].dir=dCENTER;
+      things[next_index].type=ANT; // !!
+      switch(pgm_read_byte(&levels[actor.current_level][j][i])) {
       case 'O':
-	things[n_o_things].x=i; things[n_o_things].y=j;
-	things[n_o_things].dx=things[n_o_things].dy=0;
-	things[n_o_things++].type=NIDERITE;
+	things[next_index++].type=NIDERITE;
 	actor.niderite_left++;
 	break;
-      case '^':
-      case 'v':
-      case '<':
-      case '>':
-	things[n_o_things].x=i;	things[n_o_things].y=j;
-	things[n_o_things].type=ANT;
-	things[n_o_things].dx=things[n_o_things].dy=0;
-	switch(pgm_read_byte(&levels[level][j][i])) {
-	case '^': things[n_o_things].dy=-1; break;
-	case 'v': things[n_o_things].dy=-1; break;
-	case '<': things[n_o_things].dx=-1; break;
-	case '>': things[n_o_things].dx=1; break;
-	}
-	n_o_things++;
-	break;
+      case 's':	things[0].x=i; things[0].y=j; break;
+      case 'k': things[next_index++].type=KEY; break;
+      case 'l': things[next_index++].type=LOCK; break;
+      case '^': things[next_index++].dir=dUP; break;
+      case 'v': things[next_index++].dir=dDOWN; break;
+      case '<': things[next_index++].dir=dLEFT; break;
+      case '>': things[next_index++].dir=dRIGHT; break;
       }
+    }
+  things[next_index].type=EMPTY; /// clean up.
 }
 
 
 /// THE GAME'S MECHANICS /////////////////////////////////////////
 
-/// (...)
+/// Here are the possible interactions between objects.
+/// Their names as 5char so that they fit nicely into the table;
+/// you'll see. The two arguments are indexes in things[] array.
+/// Sometimes the second argument is ignored; eg no wall has its
+/// entry in things[]; bumping at wall modifies the thing which
+/// hit the wall (ie the active thing).
 
-/// there used to be 2d array of procedure pointers, but turned
-/// out it takes too much SRAM, and I didn't want to initialize
-/// it as const, because it then stopped being THAT redable...
-
-///void (*collision[N_O_TYPES][N_O_TYPES])(unsigned char,
-///                                        unsigned char);
-
-/// so I re-declared the following procedures as inline,
-/// and there you go...
-
-/// the two arguments are indexes of things in things[] array.
-/// in some cases the second argument is ignored; eg no wall
-/// has its entry in things[], but bumping at wall modifies
-/// only the first (active) object, which _has_ to be dynamic
-/// (how could something static bump into anything?).
-
-inline
-void cl_nothing(unsigned char active, unsigned char passive) {
-  return;
+/// do nothing.
+void _nthg(byte active, byte passive) { /* pfff. */ }
+/// revert the active one's direction.
+void _bump(byte active, byte passive) {
+  things[active].dir=bounce_dir(things[active].dir);
 }
-
-inline
-void cl_left_bump(unsigned char active, unsigned char passive) {
-  things[active].dx*=-1; things[active].dy*=-1;
+/// bump both.
+void _bbum(byte active, byte passive) {
+  things[active].dir=bounce_dir(things[active].dir);
+  things[passive].dir=bounce_dir(things[passive].dir);
 }
-
-inline
-void cl_both_bump(unsigned char active, unsigned char passive) {
-  things[active].dx*=-1; things[active].dy*=-1;
-  things[passive].dx*=-1; things[passive].dy*=-1;
+/// make the active stop.
+void _stop(byte active, byte passive) {
+  things[active].dir=dCENTER;
 }
-
-inline
-void cl_left_stop(unsigned char active, unsigned char passive) {
-  things[active].dx=things[active].dy=0;
+/// make the passive move.
+void _push(byte active, byte passive) {
+  things[passive].dir=things[active].dir;
 }
-
-inline
-void cl_right_push(unsigned char active, unsigned char passive) {
-  things[passive].dx=things[active].dx;
-  things[passive].dy=things[active].dy;
-}
-
-inline
-void cl_anihilate(unsigned char active, unsigned char passive) {
+/// anihillate both.
+void _anhl(byte active, byte passive) {
   things[passive].type=things[active].type=EMPTY;
   actor.niderite_left-=2;
 }
-
-inline
-void cl_kill(unsigned char active, unsigned char passive) {
+/// kill the actor.
+void _die(byte active, byte passive) {
   actor.dead=1;
 }
-
-inline
-void cl_kill_ant(unsigned char active, unsigned char passive) {
-  things[active].dx*=-1;
-  things[active].dy*=-1;
+/// kill the passive.
+void _kill(byte active, byte passive) {
+  things[active].dir=bounce_dir(things[active].dir);
   things[passive].type=EMPTY;
 }
-
-inline
-void cl_open(unsigned char active, unsigned char passive) {
+/// try to open the door.
+void _open(byte active, byte passive) {
   if(actor.keys) {
-    actor.keys--;
-    things[passive].type=EMPTY;
+    actor.keys--; things[passive].type=EMPTY;
   }
 }
-
-inline
-void cl_pick(unsigned char active, unsigned char passive) {
-  actor.keys++;
-  things[passive].type=EMPTY;
+/// pick the key. [make sure it's not 5th one... nvm]
+void _pick(byte active, byte passive) {
+  actor.keys++; things[passive].type=EMPTY;
 }
 
+/// Now this thing is way more readable when initialized like:
+///  collision[ACTOR][DOOR] = _open; (...)
+/// BUT it then consumes our precious SRAM, so instead we
+/// construct this funny table. rows are "active", cols "passive":
+typedef void (*collision_proc)(byte,byte);
+
+PROGMEM const collision_proc collision[N_O_TYPES][N_O_TYPES] = {
+  // pass. >  EMP.  DIRT  WALL  KEY   LOCK  NID.  ANT   ACTOR
+  // v act. 
+  /*EMPTY*/ {_nthg,_nthg,_nthg,_nthg,_nthg,_nthg,_nthg,_nthg },
+  /*DIRT */ {_nthg,_nthg,_nthg,_nthg,_nthg,_nthg,_nthg,_nthg },
+  /*WALL */ {_nthg,_nthg,_nthg,_nthg,_nthg,_nthg,_nthg,_nthg },
+  /*KEY  */ {_nthg,_nthg,_nthg,_nthg,_nthg,_nthg,_nthg,_nthg },
+  /*LOCK */ {_nthg,_nthg,_nthg,_nthg,_nthg,_nthg,_nthg,_nthg },
+  /*NID. */ {_stop,_stop,_stop,_stop,_stop,_anhl,_kill,_stop },
+  /*ANT  */ {_bump,_bump,_bump,_bump,_bump,_bump,_bbum,_die  },
+  /*ACTOR*/ {_nthg,_nthg,_nthg,_pick,_open,_push,_die ,_nthg }
+};
+/// Actually we could ask for collision[things[i].type-4] and
+/// drop the first 5 rows. But flash is cheap, and maybe we'd
+/// like the keys to be "pushable", rather than "pickable", so
+/// that one would have to push the key into the door?
+
 void game_cycle() {
-  unsigned char i,nx,ny,t;
-  for(i=0;i<n_o_things;i++) {
+  byte i,nx,ny,t;
+  for(i=0;i<MAX_N_O_THINGS;i++) {
     if(things[i].type==EMPTY) continue;
-    if(things[i].dx==0 && things[i].dy==0) continue;
+    if(things[i].dir==dCENTER) continue;
     if(i==0) /// the actor.
-      if(the_joystick.dx!=0 || the_joystick.dy!=0) {
-	things[i].dx=the_joystick.dx;
-	things[i].dy=the_joystick.dy;
-      } else continue; /// no move this time.
-    nx=things[i].x+things[i].dx;
-    ny=things[i].y+things[i].dy;
-    t=read_map_at(nx,ny);
+       if(the_joystick.dir!=dCENTER)
+	things[0].dir=the_joystick.dir;
+        else continue; /// no move this time.
+    nx=things[i].x; ny=things[i].y;
+    switch(things[i].dir) {
+    case dUP: ny--; break;
+    case dDOWN: ny++; break;
+    case dLEFT: nx--; break;
+    case dRIGHT: nx++; break;
+    }
+    t=read_map_at((char)nx,(char)ny);
     if(t==EMPTY) { /// clear, move on.
-      things[i].x=nx; things[i].y=ny;
+      things[i].x=nx; things[i].y=ny;      
     } else
-      // ech, it used to be SOO PRETTY:
-      // collision[things[i].type][t](i,index_of_thing_at(nx,ny));
-      // but SRAM is SRAM...
-      switch(things[i].type) {
-      case ACTOR:
-	switch(t) {
-	case ANT:
-	  cl_kill(i,index_of_thing_at(nx,ny));
-	  break;
-	case NIDERITE:
-	  cl_right_push(i,index_of_thing_at(nx,ny));
-	  break;
-        case LOCK:
-          cl_open(i,index_of_thing_at(nx,ny));
-          break;
-        case KEY:
-          cl_pick(i,index_of_thing_at(nx,ny));
-          break;
-	}
-	break;
-
-      case NIDERITE:
-	switch(t) {
-	case ANT:
-          cl_kill_ant(i,index_of_thing_at(nx,ny));
-          break;
-        /* it's better to be able to stop it
-	case ACTOR:
-	  cl_left_bump(i,index_of_thing_at(nx,ny));          
-	  break;
-        */
-	case NIDERITE:
-	  cl_anihilate(i,index_of_thing_at(nx,ny));
-	  break;
-	default:
-	  cl_left_stop(i,index_of_thing_at(nx,ny));
-	}
-	break;
-
-      case ANT:
-	switch(t) {
-	case ACTOR:
-	  cl_kill(i,index_of_thing_at(nx,ny));
-	  break;
-        case NIDERITE:
-	case ANT:
-	  cl_both_bump(i,index_of_thing_at(nx,ny));
-	  break;
-	default:
-	  cl_left_bump(i,index_of_thing_at(nx,ny));
-	}
-	break;
-      }
+      ((collision_proc)
+        pgm_read_word(&collision[things[i].type][t]))
+	  (i,index_of_thing_at(nx,ny));
   }
 }
 
@@ -386,91 +324,104 @@ enum {S_EMPTY,
       S_WALL,
       S_KEY,
       S_LOCK,
-      S_NIDERITE,S_NIDERITE2, /// NIDERITE2 has a "blink"...
+      S_NIDERITE,S_NIDERITE2, /// NIDERITE has a "blink"...
       S_ANT_U,S_ANT_D,S_ANT_L,S_ANT_R,
       S_ANT_U2,S_ANT_D2,S_ANT_L2,S_ANT_R2, /// "animation frame"
       S_ACTOR_U,S_ACTOR_D,S_ACTOR_L,S_ACTOR_R,
       S_ACTOR_U2,S_ACTOR_D2,S_ACTOR_L2,S_ACTOR_R2, /// as above
       S_ACTOR_DEAD,S_ACTOR_DEAD2,
+      S_HEART, /// for statusbar.
       N_O_SPRITES};
 
 /// I have prepared awesome 16x16 sprites, but they turned out
 /// too big -- the viewport 7x5 tiles was too small to play
-/// comfortably... So yup 8x8, like C=64 characters.
+/// comfortably... So yup 8x8...
 #define SPRITE_H 8
 #define SPRITE_W 8
-extern const unsigned char sprite[N_O_SPRITES][SPRITE_H+2];
+extern const byte sprite[N_O_SPRITES][SPRITE_H+2];
 
-/// (...)
-char anim_frame=1; /// TODO opis
-/// TODO no need to pass courtain
-void display_board(unsigned char courtain) {
+struct {
+  byte frame : 1; /// to animate ant's/actor's legs etc.
+  byte courtain : 4; /// cf FADE_IN/OUTs...
+} display_state = {0,0};
+
+#define MAX_COURTAIN 13 /// the height of viewport +2 for cooler
+                        /// FADE_IN/OUTs timing.
+
+void display_board() {
   char i,j;
-  unsigned char x=0,y=0,spr,ind;  
-
-  TV.delay_frame(1);
-  for(j=things[0].y-5;j<=things[0].y+5;j++) {
-    for(i=things[0].x-7;i<=things[0].x+7;i++) {
+  byte x=0,y=0,spr,ind;  
+  TV.delay_frame(1); /// less flickering...
+  for(j=things[0].y-5;j<=things[0].y+5;j++) { /// "5" hehe,
+    for(i=things[0].x-7;i<=things[0].x+7;i++) { /// "7" hehehe.
       switch(read_map_at(i,j)) {
-        
       case WALL: spr=S_WALL; break;
       case DIRT: spr=S_DIRT; break;
       case KEY: spr=S_KEY; break;
       case LOCK: spr=S_LOCK; break;
-
+      
       case NIDERITE:
-	spr=S_NIDERITE;
-	if(random()%13==7) spr=S_NIDERITE2; /// blink!
-	break;
+        spr=(random()%13?S_NIDERITE:S_NIDERITE2); break;
 
       case ANT:
-	ind=index_of_thing_at(i,j);
-	if(things[ind].dx==1) spr=S_ANT_R;
-	else if(things[ind].dx==-1) spr=S_ANT_L;
-	else if(things[ind].dy==1) spr=S_ANT_D;
-	else spr=S_ANT_U;
-
-	if(anim_frame<0) spr+=4; /// "animate"
+	ind=index_of_thing_at((byte)i,(byte)j);
+	switch(things[ind].dir) {
+	case dRIGHT: spr=S_ANT_R; break;
+	case dLEFT: spr=S_ANT_L; break;
+	case dDOWN: spr=S_ANT_D; break;
+	default: spr=S_ANT_U;
+	}
+	if(display_state.frame) spr+=4; /// "animate"
 	break;
 
       case ACTOR:
 	ind=0; /// we already know that...
-	if(things[ind].dx==1) spr=S_ACTOR_R;
-	else if(things[ind].dx==-1) spr=S_ACTOR_L;
-	else if(things[ind].dy==-1) spr=S_ACTOR_U;
-	else spr=S_ACTOR_D;
-	
-	if(anim_frame<0
-	   && (the_joystick.dx!=0 || the_joystick.dy!=0))
-	  spr+=4; /// "animate", but only when moving.
-
-        /// WAIT! and what if the actor is dead?
-        if(actor.dead) {
-          spr=S_ACTOR_DEAD;
-          if(random()%2) spr=S_ACTOR_DEAD2;
+	switch(things[ind].dir) {
+	case dRIGHT: spr=S_ACTOR_R; break;
+	case dLEFT: spr=S_ACTOR_L; break;
+	case dDOWN: spr=S_ACTOR_D; break;
+	default: spr=S_ACTOR_U;
+	}
+	if(display_state.frame && the_joystick.dir!=dCENTER)
+	  spr+=4; /// "animate", but only when moving...
+        if(actor.dead) { /// WAIT! what if the actor is dead?
+          spr=(random()%2?S_ACTOR_DEAD:S_ACTOR_DEAD2);
         }
 	break;
-	
-      default: spr=S_EMPTY; /// defensively.
+
+        default:spr=S_EMPTY; /// nothing in here.
       }
-      ///if(rand()%7>chance) spr=S_EMPTY; /// random fade in/out.
-      if(y<courtain) spr=S_EMPTY; /// theatrical fade in/out.
-      TV.bitmap(x*SPRITE_W,y*SPRITE_H,sprite[spr]); /// TODO: offset?
+      if(y<display_state.courtain) spr=S_EMPTY; /// theatrical fade in/out.
+      TV.bitmap(x*SPRITE_W,y*SPRITE_H,sprite[spr]);
       x++;
     }
     x=0; y++;
   }
-  anim_frame*=-1; /// flip! :)
+  /// -- statusbar --
+  for(i=0;i<=MAX_LIVES;i++) {
+    spr=S_EMPTY;
+    if(actor.lives>i) spr=S_HEART;
+    if(actor.dead && actor.lives==i && display_state.frame)
+      spr=S_HEART; /// blinking heart...
+    TV.bitmap(i*(SPRITE_W+1),88,sprite[spr]);
+  }
+  for(i=0;i<MAX_KEYS;i++) {
+    spr=((actor.keys>i)?S_KEY:S_EMPTY);
+    TV.bitmap(111-(i*(SPRITE_W+1)),88,sprite[spr]);
+  }
+  /// flip the frame...
+  display_state.frame=1-display_state.frame;
+  /// boom done.
 }
 
 void animate_gameover() {
-  unsigned char y;
+  byte y;
   TV.delay_frame(1);
   TV.select_font(font8x8);
   TV.clear_screen();
   for(y=0;y<40;y++) {
     TV.print(24,y,"GAME OVER");
-    TV.print(24,0,"         "); /// so cool ;)
+    TV.print(24,0,"         "); /// looks cooler.
     TV.delay(23);
   }
   TV.delay(997);
@@ -487,24 +438,40 @@ void display_title_screen() {
   TV.print(8,90,"MMXVI by derczansky studio");
 }
 
-/// THE MAIN LOOP ////////////////////////////////////////////////
-
-/// the game can be in one of 6 states, where TITLE, GAME_OVER
-/// and WON are static images, FADE_IN/OUT are when the board
-/// appears/disappears, and PLAY is the game proper (ie when
-/// game cycles are realised).
-unsigned char game_state=0;
-enum{TITLE,FADE_IN,PLAY,FADE_OUT,GAME_OVER,WON};
-
-/// it's also handy to know whether after fade out-in sequence
-/// we get into the same [death], or new level.
-unsigned char fade_cause;
-enum{DEATH,LEVELUP};
-/// and finally there's 0-13 fade gradation...
-unsigned char global_courtain=0;
-#define MAX_COURTAIN 13 /// the height of viewport + 2 for timig
+void animate_victoly() {
+  byte t,y=0;
+  TV.delay_frame(1);
+  TV.select_font(font8x8);
+  TV.clear_screen();
+  for(t=0;t<200;t++) {
+    TV.print(24,y,"VICTOLY!");
+    TV.delay(23);
+    if(t<80) y++;
+    else if(t<130) y--; /// make it leave a juicy trace!
+    else if(t<150) y++;
+    else if(t<160) y--;
+    else if(t<180) y++;
+      else y++;
+  }
+  TV.delay(2323); /// ok, enough. we're done...
+  TV.clear_screen(); //  go home or play again.
+}
 
 void display_d9k_logo(); /// a bit narcisstic, no?
+
+/// THE MAIN LOOP ////////////////////////////////////////////////
+
+byte game_state=0;
+enum{PLAY, /// the game proper.
+     TITLE, /// a cool title screen, wait for button...
+     GAME_OVER, /// ran out of lives
+     WON, /// passed all levels
+     FADE_IN, /// animation showing new level,
+     FADE_OUT_DEATH, /// level disappears, to restart
+     FADE_OUT_LEVELUP /// level disappeas, to load new one
+};
+
+
 void setup() {
   randomSeed(analogRead(0)); /// haha! magick.
   setup_tv();
@@ -518,23 +485,29 @@ void setup() {
 /// should take ~142ms.
 #define TIME_STEP 142
 /// ...BUT the courtain should move faster than that:
-#define COURTAIN_TIME_STEP 42 /// oh, The Answer.
+#define FASTER_TIME_STEP 42 /// oh, The Answer.
 
 void loop() {
-  long then,now,interval;
+  long then,now;
 
   switch(game_state) {
 
-  case WON: /// TODO!!!!!!
+  case WON:
+    animate_victoly();
+    game_state=TITLE;
+    break;
+
     break;
 
   case TITLE: 
     display_title_screen();
-    if(the_joystick.dx!=0 || the_joystick.dy!=0) {
-      initialize_level(0);
+    if(the_joystick.dir!=dCENTER) {
+      actor.current_level=0;
       actor.lives=MAX_LIVES;
+      initialize_level();
       game_state=FADE_IN;
-      global_courtain=MAX_COURTAIN;
+      display_state.courtain=MAX_COURTAIN;
+      TV.clear_screen(); /// !!!!
     }
     break;
 
@@ -543,47 +516,46 @@ void loop() {
     game_state=TITLE;
     break;
 
-  case FADE_OUT:
-    display_board(global_courtain);
-    if(++global_courtain>=MAX_COURTAIN) {
-      if(fade_cause==DEATH && actor.lives==0)
-	game_state=GAME_OVER;
+  case FADE_OUT_DEATH:
+    display_board();
+    if(++display_state.courtain>=MAX_COURTAIN) {
+      if(actor.lives==0) game_state=GAME_OVER;
       else {
-	if(fade_cause==LEVELUP) actor.current_level++;
-	initialize_level(actor.current_level);
+	initialize_level();
 	game_state=FADE_IN;
       }
     }
     break;
 
+  case FADE_OUT_LEVELUP:
+    display_board();
+    if(++display_state.courtain>=MAX_COURTAIN) {
+        if(actor.current_level++>=N_O_LEVELS) game_state=WON;
+          else {
+  	    initialize_level();
+	    game_state=FADE_IN;
+          }
+    }
+    break;
+
   case FADE_IN:
-    display_board(global_courtain);
-    if(--global_courtain<=0) game_state=PLAY;
+    display_board();
+    if(--display_state.courtain<=0) game_state=PLAY;
     break;
 
   case PLAY:
-    display_board(0);
+    display_board();
     game_cycle();
-    if(actor.niderite_left<=0) {
-      game_state=FADE_OUT;
-      fade_cause=LEVELUP;
-    }
-    if(actor.dead) {
-      actor.lives--;
-      game_state=FADE_OUT;
-      fade_cause=DEATH;  
-    }
+    if(actor.niderite_left<=0)  game_state=FADE_OUT_LEVELUP;
+    if(actor.dead) {actor.lives--; game_state=FADE_OUT_DEATH;}
     break;
 
   }
   reset_joystick();
   /// wait till the end of this cycle.
   then=now=TV.millis();
-  if(game_state==PLAY) interval=TIME_STEP;
-    else interval=COURTAIN_TIME_STEP;
-  while(now-then<interval) {
-    /// controls can be altered at any moment, right?
-    refresh_joystick();
+  while(now-then<(game_state==PLAY?TIME_STEP:FASTER_TIME_STEP)) {
+    refresh_joystick(); /// controls can be altered at any moment
     now=TV.millis();
   }
 }
@@ -591,7 +563,7 @@ void loop() {
 
 /// THE DATA (SPRITES AND MAPS) //////////////////////////////////
 
-PROGMEM const unsigned char levels[N_O_LEVELS][MAP_H][MAP_W+1] = {
+PROGMEM const byte levels[N_O_LEVELS][MAP_H][MAP_W+1] = {
   /// LEVEL 1
   {" #####           ##### ",
    "##.#.##         ##.#.##",
@@ -716,7 +688,7 @@ PROGMEM const unsigned char levels[N_O_LEVELS][MAP_H][MAP_W+1] = {
 
 
 
-PROGMEM const unsigned char sprite[N_O_SPRITES][SPRITE_H+2] = {
+PROGMEM const byte sprite[N_O_SPRITES][SPRITE_H+2] = {
   /// S_EMPTY
   {SPRITE_W,SPRITE_H,
    0,0,0,0,0,0,0,0
@@ -1007,12 +979,23 @@ PROGMEM const unsigned char sprite[N_O_SPRITES][SPRITE_H+2] = {
   0b01001110,
   0b01111110,
   0b00000000
+  },
+
+  /// S_HEART
+  {SPRITE_W,SPRITE_H,
+   0b00000000,
+   0b01100011,
+   0b01110111,
+   0b01111111,
+   0b00111110,
+   0b00011100,
+   0b00001000,
+   0b00000000
   }
 };
 
 /// sorry, I had to:
-
-PROGMEM const unsigned char dercz9000[] = {
+PROGMEM const byte dercz9000[] = {
   120,96,
 0b11111111, 0b11111111, 0b11111111, 0b10000000, 0b00000000, 0b00000000, 0b00000000, 0b00000000, 0b00000000, 0b00000000, 0b00110011, 0b11111111, 0b11111111, 0b11111111, 0b11111111, 
 0b11111111, 0b11111111, 0b11111111, 0b00000000, 0b00000000, 0b00000000, 0b00000000, 0b00000000, 0b00000000, 0b00000000, 0b00000001, 0b00011111, 0b11111111, 0b11111111, 0b11111111, 
