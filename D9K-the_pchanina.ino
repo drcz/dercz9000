@@ -278,30 +278,35 @@ void _stop(byte active, byte passive) {
 /// make the passive move.
 void _push(byte active, byte passive) {
   things[passive].dir=things[active].dir;
+  TV.tone(440,200); /// :D
 }
 /// anihillate both.
 void _anhl(byte active, byte passive) {
   things[passive].type=things[active].type=EMPTY;
   actor.niderite_left-=2;
+  TV.tone(880,300);
 }
 /// kill the actor.
 void _die(byte active, byte passive) {
   actor.dead=1;
+  TV.tone(220,666);
 }
 /// kill the passive.
 void _kill(byte active, byte passive) {
   things[active].dir=bounce_dir(things[active].dir);
   things[passive].type=EMPTY;
+  TV.tone(440,300);
 }
 /// try to open the door.
 void _open(byte active, byte passive) {
   if(actor.keys) {
     actor.keys--; things[passive].type=EMPTY;
-  }
+    TV.tone(440,200);
+  } else TV.tone(220,200);
 }
 /// pick the key. [make sure it's not 5th one... nvm]
 void _pick(byte active, byte passive) {
-  actor.keys++; things[passive].type=EMPTY;
+  actor.keys++; things[passive].type=EMPTY; TV.tone(440,200);
 }
 
 /// Now this thing is way more readable when initialized like:
@@ -480,6 +485,7 @@ void animate_victoly() {
   TV.delay_frame(1);
   TV.select_font(font8x8);
   TV.clear_screen();
+  TV.tone(220); /// ?!
   for(t=0;t<200;t++) {
     TV.print(24,y,"VICTOLY!");
     TV.delay(23);
@@ -491,6 +497,7 @@ void animate_victoly() {
       else y++;
   }
   TV.delay(2323); /// ok, enough. we're done...
+  TV.noTone();
   TV.clear_screen(); //  go home or play again.
 }
 
@@ -720,7 +727,7 @@ PROGMEM const byte levels[N_O_LEVELS][MAP_H][MAP_W+1] = {
     " #.#..#.....###..##O#  ",
     " #>.....##### #O.O..#  ",
     " ########     #######  "}
-    /// TODO...
+    /// TODO TODO TODO?
 };
 
 
@@ -1135,7 +1142,14 @@ PROGMEM const byte dercz9000[] = {
 void display_d9k_logo() {  
   TV.clear_screen();  
   TV.bitmap(0,0,dercz9000);
-  delay(6660);
+  delay(2012);
+  TV.tone(128,1000);
+  delay(1000);
+  TV.tone(256,1000);  
+  delay(1000);  
+  TV.tone(384,1000);
+  delay(1000);  
+  TV.tone(512,900);
 }
 
 /// the end.
