@@ -9,29 +9,26 @@
 /// If it fries your TVset, your arduino, or both, that's
 /// neither my responsibility, nor my business.
 
-/// TODO do something with gamepads "oversensitivity".
 /// TODO more/better levels
-/// TODO disclaimer, game description, comments +schematics?
-/// TODO perhaps get rid of fontALL?
-
+/// TODO perhaps change strings to bitmaps?
+/// TODO disclaimer, game description, comments + schematics
+/// ...?
 
 /// THE drcz9000 VIDEO CONSOLE ///////////////////////////////////
 
 /// The "console" utilizes the divine Myles Metzer's TVout library
 /// -- cf http://playground.arduino.cc/Main/TVout
 #include <TVout.h>
-#include <fontALL.h>
+#include <fontALL.h> /// TODO convert strings to bitmaps perhaps?
 #include <avr/pgmspace.h>
 
 TVout TV;
 
-/// We use 120x96 resolution.
-/// Turns out we could even use 128x96, hehe.
+/// We use 120x96 resolution. Note: TVout utilizes 16*96=1536B!
 void setup_tv() {
   TV.begin(PAL,120,96);
   TV.clear_screen();  
 }
-/// note that now TVout utilizes 16*96=1536B.
 
 /// "The gamepad", ie 4 switches, I connect to pins 3-6.
 /// I've picked them because TVout utilizes only pins >6.
@@ -47,30 +44,70 @@ void setup_gamepad() {
   pinMode(BTN_RIGHT,INPUT);
 }
 
-struct {
-  //  byte pressed_dir : 3; TODO!!!!!!
-  //  byte released_dir: 3;
-  byte dir; /// : 3? who cares
-} the_joystick;
-
-/// interpretation of dir field.
 /// had to add "d" prefix because of name clash or sth...
-enum {dCENTER,dUP,dLEFT,dDOWN,dRIGHT};
+enum {dUP,dLEFT,dDOWN,dRIGHT,dCENTER};
 
-/// this one we will call more than once in each game cycle.
-/// If you prefer other controlling device, just modify this:
+struct {
+  /// the only "public" field, with "approved" input value:
+  byte dir : 3;
+  /// pure magic to simplify (and abstract) reads from
+  /// switches (or some other input device):
+  struct {
+    union {
+      struct {
+	byte up : 1;
+	byte left : 1;
+	byte down : 1;
+	byte right : 1;
+      };
+      byte bits;
+    };
+  } reads,last_reads;
+  /// and to know how long the last push was:
+  long push_time;
+} the_joystick = {dCENTER,0,0,dCENTER};
+
+/// minimum number of ms for a push to be approved:
+#define MIN_PUSH_TIME 13
+
+/// this one we will call as often as possible:
 void refresh_joystick() {
-  if(digitalRead(BTN_LEFT)) the_joystick.dir=dLEFT;
-  else if(digitalRead(BTN_RIGHT)) the_joystick.dir=dRIGHT;
-  else if(digitalRead(BTN_UP)) the_joystick.dir=dUP;
-  else if(digitalRead(BTN_DOWN)) the_joystick.dir=dDOWN;
+  the_joystick.reads.bits=0; /// clear them all.
+  /// modify this to use your controller (a real joystick?)
+  if(digitalRead(BTN_UP)) the_joystick.reads.up=1;
+  else if(digitalRead(BTN_LEFT)) the_joystick.reads.left=1;
+  else if(digitalRead(BTN_DOWN)) the_joystick.reads.down=1;
+  else if(digitalRead(BTN_RIGHT)) the_joystick.reads.right=1;
+  /// \modify
+  
+  if(the_joystick.last_reads.bits==0) {
+    /// waiting for push...
+    if(the_joystick.reads.bits>0) { /// button pushed!
+      the_joystick.push_time=TV.millis();
+      the_joystick.last_reads.bits=the_joystick.reads.bits;
+    }
+  } else {
+    /// waiting for release
+    if(the_joystick.reads.bits==0) { /// there it goes!
+      /// did the push last long enough?
+      if((TV.millis()-the_joystick.push_time)>=MIN_PUSH_TIME) {
+	if(the_joystick.last_reads.up) the_joystick.dir=dUP;
+	else if(the_joystick.last_reads.left) the_joystick.dir=dLEFT;
+	else if(the_joystick.last_reads.down) the_joystick.dir=dDOWN;
+	else if(the_joystick.last_reads.right) the_joystick.dir=dRIGHT;
+      }
+      the_joystick.last_reads.bits=0;
+    }
+  }
   /// NB we disallow "diagonal" moves (eg left+up).
 }
-/// TODO sometimes it does "two moves instead of one"
-/// -- try to fix it by waiting for button's release?
 
 /// ...so after it's finally used as input, we need to reset it:
-void reset_joystick() { the_joystick.dir=dCENTER; }
+void reset_joystick() {
+  the_joystick.dir=dCENTER;
+//  the_joystick.last_reads.bits=0;
+//  the_joystick.push_time=0;
+}
 
 
 /// THE GAME'S WORLD /////////////////////////////////////////////
@@ -615,7 +652,7 @@ PROGMEM const byte levels[N_O_LEVELS][MAP_H][MAP_W+1] = {
   {"     #     #     #     ",
    "    ###############    ",
    "    #>............#    ",
-   "  ###.###########l###  ",
+   "  ###l###########l###  ",
    " ##v....O#  ##O....v## ",
    " #...##..O# #...##...# ",
    " #^..##...# #...##..^# ",
@@ -629,7 +666,7 @@ PROGMEM const byte levels[N_O_LEVELS][MAP_H][MAP_W+1] = {
    " #..#   ##...##   #.^# ",
    " #..#####..s..#####..# ",
    " #...O..O.....O..O...# ",
-   " #.^.####..O..####...# ",
+   " #^..####..O..####...# ",
    " #########...######### ",
    "      #>.......k#      ",
    "      #####O#####      ",
@@ -649,15 +686,15 @@ PROGMEM const byte levels[N_O_LEVELS][MAP_H][MAP_W+1] = {
    " #.#####OO########.#   ",
    " #.#   #..#      #O####",
    " #.#####..###### #....#",
-   " #.............# ###..#",
-   " #.#####OO##.#.# #...O#",
+   " #..........v..# ###..#",
+   " #.#####OO##.#l# #...O#",
    " #.#   #^^##.#.###.O###",
    " #.#########.#......#  ",
-   " #^.........<########  ",
+   " #^..........########  ",
    " #.###########         ",
    " #.#                   ",
    " #.#############       ",
-   " #.............#       ",
+   " #............k#       ",
    " ###############       "},
   /// LEVEL 5
   { "#######################",
@@ -683,7 +720,7 @@ PROGMEM const byte levels[N_O_LEVELS][MAP_H][MAP_W+1] = {
     " #.#..#.....###..##O#  ",
     " #>.....##### #O.O..#  ",
     " ########     #######  "}
-    /// TODO TODO TODO
+    /// TODO...
 };
 
 
@@ -984,13 +1021,13 @@ PROGMEM const byte sprite[N_O_SPRITES][SPRITE_H+2] = {
   /// S_HEART
   {SPRITE_W,SPRITE_H,
    0b00000000,
-   0b01100011,
+   0b00100010,
    0b01110111,
+   0b01111111,
    0b01111111,
    0b00111110,
    0b00011100,
-   0b00001000,
-   0b00000000
+   0b00001000
   }
 };
 
