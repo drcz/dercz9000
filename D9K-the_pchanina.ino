@@ -1,25 +1,86 @@
 //////////////////////////////////////////////////////////////////
 ///                     -= PCHANINA 1.0 =-
 ///        a silly game for the dercz9000 video console
-///           Alicante 2016.03.25-04.02, drcz@tlen.pl
+///           Alicante 2016.03.25-04.03, drcz@tlen.pl
+/// License: do whatever you want, but read the disclaimer first.
 //////////////////////////////////////////////////////////////////
 
+/// TODO: Perhaps, maybe, rather not:
+/// -- comments
+/// -- perhaps change strings to bitmaps?
+/// -- design more levels
+/// -- try with joystick?
+/// -- how about some simple melody for title screen?
+
+/// DISCLAIMER ///////////////////////////////////////////////////
+/// or: abandon all hope ye who read this.
+
+/// First of all, sorry for keeping everything in one file,
+/// but as a very impatient programmer I gave up trying to
+/// convince arduino's ide to include everything.
+/// The upside is, you don't have to bother either, AND
+/// you can easily print the whole thing (dadaaam!).
+
+/// Mind that I'm Not A Good Programmer(tm), have no idea about
+/// electronics, and this is my first arduino project, so probably
+/// it's all wrong, but WORKS ON MY MACHINE.
+
+/// I'd be grateful if you write me what should be changed
+/// in order to improve it. I probably won't improve it anyway,
+/// but it's always Nice To Know.
+
+/// I don't care about "pretty code". Just face it: C is not
+/// pretty, and will never be. If you'd like to see some [mostly]
+/// pretty code, check out https://panicz.github.io/pamphlet/
+
+/// The code is not very configurable. The only reason I use
+/// #define is to make it easier to read.
+
+
+///       ** VERY IMPORTANT! / MUY IMPORTANTE! **
 ///     I state this only once: USE AT YOUR OWN RISK.
 
 /// If it fries your TVset, your arduino, or both, that's
 /// neither my responsibility, nor my business.
 
-/// TODO more/better levels
-/// TODO perhaps change strings to bitmaps?
-/// TODO disclaimer, game description, comments + schematics
-/// ...?
+
+/// THE GAME /////////////////////////////////////////////////////
+
+/// This is a wacky implementation of (a variant of) my
+/// silly js game Niezla Pchanina ("the fair enough pushing"?),
+/// which you can find on my github and play online at
+/// http://chuj.co.nf/pchanina.html
+/// It's a variant of Sokoban. You need to clear each level
+/// of niderite crystals, by pushing one against the other
+/// so that they annihilate. A crystal once pushed slides until
+/// it hits something. Just try the js version.
+
+/// The differences are:
+/// -- the moving things (which now became ants, as I hate
+///    ants, as much as I hate procedural programming) are
+///    now deadly (and you have limited number of lives),
+/// -- the viewport is now limited, so you have to explore
+///    each level to find out how to solve it;
+///    I didn't implement the isometric gfx (yet?), because
+///    using bitmasks for the sprites to gain transparency
+///    is beyond my imagination.
+/// -- there are now new objects: key and lock, just to make
+///    the gameplay a bit more frustrating.
+
+/// In order to play the thing, you have to assemble dercz9000
+/// console; it's very primitive device, consisting of 4
+/// switch buttons and two RCA plugs. You'll find there things
+/// on the internet. The one twist I use (but DON'T KNOW WHY)
+/// is to add 10 kOhm resistors to each switch. Whatever, I had
+/// to do some software magick (93) with inputs.
+
 
 /// THE drcz9000 VIDEO CONSOLE ///////////////////////////////////
 
 /// The "console" utilizes the divine Myles Metzer's TVout library
 /// -- cf http://playground.arduino.cc/Main/TVout
 #include <TVout.h>
-#include <fontALL.h> /// TODO convert strings to bitmaps perhaps?
+#include <fontALL.h>
 #include <avr/pgmspace.h>
 
 TVout TV;
@@ -29,6 +90,7 @@ void setup_tv() {
   TV.begin(PAL,120,96);
   TV.clear_screen();  
 }
+
 
 /// "The gamepad", ie 4 switches, I connect to pins 3-6.
 /// I've picked them because TVout utilizes only pins >6.
@@ -53,8 +115,8 @@ struct {
   /// pure magic to simplify (and abstract) reads from
   /// switches (or some other input device):
   struct {
-    union {
-      struct {
+    union { /// How I learned about C bitfields and avoided
+      struct { /// spanking is explained later on.
 	byte up : 1;
 	byte left : 1;
 	byte down : 1;
@@ -68,11 +130,11 @@ struct {
 } the_joystick = {dCENTER,0,0,dCENTER};
 
 /// minimum number of ms for a push to be approved:
-#define MIN_PUSH_TIME 13
+#define MIN_PUSH_TIME 13 // does it even make any sense?
 
 /// this one we will call as often as possible:
 void refresh_joystick() {
-  the_joystick.reads.bits=0; /// clear them all.
+  the_joystick.reads.bits=0; /// clear them all...
   /// modify this to use your controller (a real joystick?)
   if(digitalRead(BTN_UP)) the_joystick.reads.up=1;
   else if(digitalRead(BTN_LEFT)) the_joystick.reads.left=1;
@@ -105,8 +167,8 @@ void refresh_joystick() {
 /// ...so after it's finally used as input, we need to reset it:
 void reset_joystick() {
   the_joystick.dir=dCENTER;
-//  the_joystick.last_reads.bits=0;
-//  the_joystick.push_time=0;
+  //the_joystick.last_reads.bits=0;
+  //the_joystick.push_time=0;
 }
 
 
@@ -140,11 +202,13 @@ enum {EMPTY,
 
 extern const byte levels[N_O_LEVELS][MAP_H][MAP_W+1];
 /// cf the end of this file -- and notice levels contain also
-/// the starting positoins for ants, niderite, actor, locks&keys;
-/// these ones we will interpret as EMPTY (ie "floor").
+/// the starting positoins for ants, niderite, actor, locks, keys
+/// -- these ones we will interpret as EMPTY (ie "floor").
 
 /// We'll use SRAM only for "dynamic" things (ants, niderite etc):
-#define MAX_N_O_THINGS 33 // ?!
+
+#define MAX_N_O_THINGS 42 // maybe more?
+
 /// I initially wanted to do some oldschool prickwaving like:
 /// #define THING_X(I) (((things[I])&0xf800)>>11)
 /// #d. THING_SET_X(I,X) (things[I]=((thing[I])&0x07ff)+((X)<<11))
@@ -158,6 +222,7 @@ struct {
   unsigned type : 3;
 } things[MAX_N_O_THINGS];
 /// Actually it's quite handy. And no spanking!
+/// Also, we remove thing by switching it's type to EMPTY.
 
 inline byte bounce_dir(byte dir) {
   switch(dir) {
@@ -176,7 +241,7 @@ inline byte bounce_dir(byte dir) {
 struct {
   byte current_level : 5; /// the level we're at (32 levels?!)
   byte niderite_left : 6; /// when 0, move to next level.
-  byte lives : 2; /// lives left. not much :)
+  byte lives : 2; /// lives left. not much!
   byte dead : 1; /// we could avoid using it, but... we don't.
   byte keys : 2; /// number of carried keys.
 } actor;
@@ -189,20 +254,18 @@ byte index_of_thing_at(byte x,byte y) {
   for(i=0;i<MAX_N_O_THINGS;i++) {
     if(things[i].type!=EMPTY /// dismiss empty slots
        && things[i].x==x
-       && things[i].y==y) {
-      return i;
-     }
+       && things[i].y==y) break;
   }
-  return MAX_N_O_THINGS;
+  return i;
 }
 
-/// To find out what's on a given location, first check things[],
-/// and if no [interesting] thing is found, we revert to the
-/// static map from flash memory (note the pgm_read_byte, cf
+/// To find out what's at a given location, first check things[],
+/// if nothing [interesting] is found, revert to the static map
+/// from flash memory (note the pgm_read_byte, cf
 /// https://www.arduino.cc/en/Reference/PROGMEM).
-/// Notice we use signed coordinates --  for convenience of
-/// displaying... you'll see it soon.
-/// Also, we remove thing by switching it's type to EMPTY.
+/// We use signed coordinates -- for convenience of  displaying
+/// -- cf display_board() below.
+
 byte read_map_at(char x,char y) {
   byte i;
   /// outside the map area is just dirt
@@ -251,113 +314,6 @@ void initialize_level() {
 }
 
 
-/// THE GAME'S MECHANICS /////////////////////////////////////////
-
-/// Here are the possible interactions between objects.
-/// Their names as 5char so that they fit nicely into the table;
-/// you'll see. The two arguments are indexes in things[] array.
-/// Sometimes the second argument is ignored; eg no wall has its
-/// entry in things[]; bumping at wall modifies the thing which
-/// hit the wall (ie the active thing).
-
-/// do nothing.
-void _nthg(byte active, byte passive) { /* pfff. */ }
-/// revert the active one's direction.
-void _bump(byte active, byte passive) {
-  things[active].dir=bounce_dir(things[active].dir);
-}
-/// bump both.
-void _bbum(byte active, byte passive) {
-  things[active].dir=bounce_dir(things[active].dir);
-  things[passive].dir=bounce_dir(things[passive].dir);
-}
-/// make the active stop.
-void _stop(byte active, byte passive) {
-  things[active].dir=dCENTER;
-}
-/// make the passive move.
-void _push(byte active, byte passive) {
-  things[passive].dir=things[active].dir;
-  TV.tone(440,200); /// :D
-}
-/// anihillate both.
-void _anhl(byte active, byte passive) {
-  things[passive].type=things[active].type=EMPTY;
-  actor.niderite_left-=2;
-  TV.tone(880,300);
-}
-/// kill the actor.
-void _die(byte active, byte passive) {
-  actor.dead=1;
-  TV.tone(220,666);
-}
-/// kill the passive.
-void _kill(byte active, byte passive) {
-  things[active].dir=bounce_dir(things[active].dir);
-  things[passive].type=EMPTY;
-  TV.tone(440,300);
-}
-/// try to open the door.
-void _open(byte active, byte passive) {
-  if(actor.keys) {
-    actor.keys--; things[passive].type=EMPTY;
-    TV.tone(440,200);
-  } else TV.tone(220,200);
-}
-/// pick the key. [make sure it's not 5th one... nvm]
-void _pick(byte active, byte passive) {
-  actor.keys++; things[passive].type=EMPTY; TV.tone(440,200);
-}
-
-/// Now this thing is way more readable when initialized like:
-///  collision[ACTOR][DOOR] = _open; (...)
-/// BUT it then consumes our precious SRAM, so instead we
-/// construct this funny table. rows are "active", cols "passive":
-typedef void (*collision_proc)(byte,byte);
-
-PROGMEM const collision_proc collision[N_O_TYPES][N_O_TYPES] = {
-  // pass. >  EMP.  DIRT  WALL  KEY   LOCK  NID.  ANT   ACTOR
-  // v act. 
-  /*EMPTY*/ {_nthg,_nthg,_nthg,_nthg,_nthg,_nthg,_nthg,_nthg },
-  /*DIRT */ {_nthg,_nthg,_nthg,_nthg,_nthg,_nthg,_nthg,_nthg },
-  /*WALL */ {_nthg,_nthg,_nthg,_nthg,_nthg,_nthg,_nthg,_nthg },
-  /*KEY  */ {_nthg,_nthg,_nthg,_nthg,_nthg,_nthg,_nthg,_nthg },
-  /*LOCK */ {_nthg,_nthg,_nthg,_nthg,_nthg,_nthg,_nthg,_nthg },
-  /*NID. */ {_stop,_stop,_stop,_stop,_stop,_anhl,_kill,_stop },
-  /*ANT  */ {_bump,_bump,_bump,_bump,_bump,_bump,_bbum,_die  },
-  /*ACTOR*/ {_nthg,_nthg,_nthg,_pick,_open,_push,_die ,_nthg }
-};
-/// Actually we could ask for collision[things[i].type-4] and
-/// drop the first 5 rows. But flash is cheap, and maybe we'd
-/// like the keys to be "pushable", rather than "pickable", so
-/// that one would have to push the key into the door?
-
-void game_cycle() {
-  byte i,nx,ny,t;
-  for(i=0;i<MAX_N_O_THINGS;i++) {
-    if(things[i].type==EMPTY) continue;
-    if(things[i].dir==dCENTER) continue;
-    if(i==0) /// the actor.
-       if(the_joystick.dir!=dCENTER)
-	things[0].dir=the_joystick.dir;
-        else continue; /// no move this time.
-    nx=things[i].x; ny=things[i].y;
-    switch(things[i].dir) {
-    case dUP: ny--; break;
-    case dDOWN: ny++; break;
-    case dLEFT: nx--; break;
-    case dRIGHT: nx++; break;
-    }
-    t=read_map_at((char)nx,(char)ny);
-    if(t==EMPTY) { /// clear, move on.
-      things[i].x=nx; things[i].y=ny;      
-    } else
-      ((collision_proc)
-        pgm_read_word(&collision[things[i].type][t]))
-	  (i,index_of_thing_at(nx,ny));
-  }
-}
-
 /// DISPLAY //////////////////////////////////////////////////////
 
 /// Now the sprites...
@@ -391,7 +347,7 @@ struct {
                         /// FADE_IN/OUTs timing.
 
 void display_board() {
-  char i,j;
+  char i,j; /// signed!
   byte x=0,y=0,spr,ind;  
   TV.delay_frame(1); /// less flickering...
   for(j=things[0].y-5;j<=things[0].y+5;j++) { /// "5" hehe,
@@ -439,7 +395,7 @@ void display_board() {
     }
     x=0; y++;
   }
-  /// -- statusbar --
+  /// -- the statusbar --
   for(i=0;i<=MAX_LIVES;i++) {
     spr=S_EMPTY;
     if(actor.lives>i) spr=S_HEART;
@@ -477,7 +433,11 @@ void display_title_screen() {
   TV.print(40,30,"the");
   TV.print(0,39,"PCHANINA");
   TV.select_font(font4x6);
-  TV.print(8,90,"MMXVI by derczansky studio");
+  TV.print(8,70,"MMXVI by derczansky studio");
+  if(display_state.frame) {
+    TV.print(16,90,"-- push any button --");
+  }
+  display_state.frame=1-display_state.frame;
 }
 
 void animate_victoly() {
@@ -502,6 +462,127 @@ void animate_victoly() {
 }
 
 void display_d9k_logo(); /// a bit narcisstic, no?
+
+
+/// THE SOUND FX /////////////////////////////////////////////////
+inline void beep_action_lo() { TV.tone(220,200); }
+inline void beep_action_hi() { TV.tone(440,242); }
+inline void beep_annihilation() { TV.tone(660,303); }
+inline void beep_step() { TV.tone(80,100); }
+inline void beep_die() { TV.tone(110,666); }
+
+/// THE GAME'S MECHANICS /////////////////////////////////////////
+
+/// Here are the possible interactions between objects.
+/// Their names as 5char so that they fit nicely into the table;
+/// you'll see. The two arguments are indexes in things[] array.
+/// Sometimes the second argument is ignored; eg no wall has its
+/// entry in things[]; bumping at wall modifies the thing which
+/// hit the wall (ie the active thing).
+
+/// do nothing.
+void _nthg(byte active, byte passive) { /* pfff. */ }
+/// revert the active one's direction.
+void _bump(byte active, byte passive) {
+  things[active].dir=bounce_dir(things[active].dir);
+  if(active==0) beep_action_lo();
+}
+/// bump both.
+void _bbum(byte active, byte passive) {
+  things[active].dir=bounce_dir(things[active].dir);
+  things[passive].dir=bounce_dir(things[passive].dir);
+  if(active==0 || passive==0) beep_action_lo();
+}
+/// make the active stop.
+void _stop(byte active, byte passive) {
+  things[active].dir=dCENTER;
+  if(active==0 || passive==0) beep_action_lo();
+}
+/// make the passive move.
+void _push(byte active, byte passive) {
+  things[passive].dir=things[active].dir;
+  if(active==0) beep_action_hi();
+}
+/// annihilate both.
+void _anhl(byte active, byte passive) {
+  things[passive].type=things[active].type=EMPTY;
+  actor.niderite_left-=2;
+  beep_annihilation();
+}
+/// kill the actor.
+void _die(byte active, byte passive) {
+  actor.dead=1;
+  beep_die();
+}
+/// kill the passive.
+void _kill(byte active, byte passive) {
+  things[active].dir=bounce_dir(things[active].dir);
+  things[passive].type=EMPTY;
+  beep_action_lo();
+}
+/// try to open the door.
+void _open(byte active, byte passive) {
+  if(actor.keys) {
+    actor.keys--; things[passive].type=EMPTY;
+    beep_action_hi();
+  } else beep_action_lo();
+}
+/// pick the key. [make sure it's not 5th one... nvm]
+void _pick(byte active, byte passive) {
+  actor.keys++; things[passive].type=EMPTY;
+beep_action_hi();
+}
+
+/// Now this thing is way more readable when initialized like:
+///  collision[ACTOR][DOOR] = _open; (...)
+/// BUT it then consumes our precious SRAM, so instead we
+/// construct this funny table. rows are "active", cols "passive":
+typedef void (*collision_proc)(byte,byte);
+
+PROGMEM const collision_proc collision[N_O_TYPES][N_O_TYPES] = {
+  // pass. >  EMP.  DIRT  WALL  KEY   LOCK  NID.  ANT   ACTOR
+  // v act. 
+  /*EMPTY*/ {_nthg,_nthg,_nthg,_nthg,_nthg,_nthg,_nthg,_nthg },
+  /*DIRT */ {_nthg,_nthg,_nthg,_nthg,_nthg,_nthg,_nthg,_nthg },
+  /*WALL */ {_nthg,_nthg,_nthg,_nthg,_nthg,_nthg,_nthg,_nthg },
+  /*KEY  */ {_nthg,_nthg,_nthg,_nthg,_nthg,_nthg,_nthg,_nthg },
+  /*LOCK */ {_nthg,_nthg,_nthg,_nthg,_nthg,_nthg,_nthg,_nthg },
+  /*NID. */ {_stop,_stop,_stop,_stop,_stop,_anhl,_kill,_stop },
+  /*ANT  */ {_bump,_bump,_bump,_bump,_bump,_bump,_bbum,_die  },
+  /*ACTOR*/ {_nthg,_nthg,_nthg,_pick,_open,_push,_die ,_nthg }
+};
+/// Actually we could ask for collision[things[i].type-4] and
+/// drop the first 5 rows. But flash is cheap, and maybe we'd
+/// like the keys to be "pushable", rather than "pickable", so
+/// that one would have to push the key into the door?
+
+void game_cycle() {
+  byte i,nx,ny,t;
+  for(i=0;i<MAX_N_O_THINGS;i++) {
+    if(things[i].type==EMPTY) continue;
+    if(things[i].dir==dCENTER) continue;
+    if(i==0) /// the actor.
+       if(the_joystick.dir!=dCENTER)
+	things[0].dir=the_joystick.dir;
+        else continue; /// no move this time.
+    nx=things[i].x; ny=things[i].y;
+    switch(things[i].dir) {
+    case dUP: ny--; break;
+    case dDOWN: ny++; break;
+    case dLEFT: nx--; break;
+    case dRIGHT: nx++; break;
+    }
+    t=read_map_at((char)nx,(char)ny);
+    if(t==EMPTY) { /// clear, move on.
+      things[i].x=nx; things[i].y=ny;
+      if(i==0) beep_step();
+    } else
+      ((collision_proc)
+        pgm_read_word(&collision[things[i].type][t]))
+	  (i,index_of_thing_at(nx,ny));
+  }
+}
+
 
 /// THE MAIN LOOP ////////////////////////////////////////////////
 
@@ -539,8 +620,6 @@ void loop() {
   case WON:
     animate_victoly();
     game_state=TITLE;
-    break;
-
     break;
 
   case TITLE: 
@@ -598,8 +677,10 @@ void loop() {
   reset_joystick();
   /// wait till the end of this cycle.
   then=now=TV.millis();
-  while(now-then<(game_state==PLAY?TIME_STEP:FASTER_TIME_STEP)) {
-    refresh_joystick(); /// controls can be altered at any moment
+  while(now-then <
+       ((game_state==PLAY||game_state==TITLE)?
+          TIME_STEP:FASTER_TIME_STEP)) {
+    refresh_joystick();
     now=TV.millis();
   }
 }
@@ -705,19 +786,19 @@ PROGMEM const byte levels[N_O_LEVELS][MAP_H][MAP_W+1] = {
    " ###############       "},
   /// LEVEL 5
   { "#######################",
-    "#.....<#>........<#.O.#",
+    "#.....<#.......<..#.Ok#",
     "#.##...#.........<#..##",
-    "#.##.O.O.#..#######..# ",
+    "#.##.O.O.##.#######..# ",
     "#.##..##.#.....O.##..##",
     "#.s...#..#..#.#..#....#",
-    "#.....##.##.#.#.##....#",
+    "#.....##.#..#.#.##....#",
     "#####O##....#.###.O.OO#",
     "#......###..#.##.....##",
     "#..#...OO#^......##^###",
     "#.....##.####O#######.#",
     "#O....O...............#",
     "###################...#",
-    " #.....<#####....##.###",
+    " #.....<#####....##l###",
     " #.#..#.O......####.#  ",
     " #....v.#.###.......#  ",
     " #..##..#.#########O###",
@@ -727,7 +808,7 @@ PROGMEM const byte levels[N_O_LEVELS][MAP_H][MAP_W+1] = {
     " #.#..#.....###..##O#  ",
     " #>.....##### #O.O..#  ",
     " ########     #######  "}
-    /// TODO TODO TODO?
+    /// TODO? this one IS quite hard...
 };
 
 
