@@ -11,20 +11,24 @@
 ///             Alicante 2016.04.23-25, drcz@tlen.pl
 //////////////////////////////////////////////////////////////////
 
+/// License: public domain, only USE AT YOUR OWN RISK!
+/// If it fries your TVset, your arduino, or both, that's
+/// neither my responsibility, nor my business.
+
 /// The following code is a collage of D9K-the_pchanina.ino
 /// excerpts, with some ruby generated code, with a grain of
 /// cheap tricks. At the moment it's great mess.
 
-/// todo get rid of ~1K of memory usage... [is it possible?]
-
 /// todo cleanup
+
+#include <avr/pgmspace.h>
+/// flash memory access
+#define FLASH(X) pgm_read_byte(&X)
+#define FLASHW(X) pgm_read_word(&X)
 
 
 /// THE drcz9000 VIDEO CONSOLE ///////////////////////////////////
 #include<string.h>
-/// flash memory access
-#define FLASH(X) pgm_read_byte(&X)
-#define FLASHW(X) pgm_read_word(&X)
 
 /// The "console" utilizes the divine Myles Metzer's TVout library
 /// http://playground.arduino.cc/Main/TVout
@@ -128,12 +132,11 @@ void reset_joystick() {
 /// THE GAME'S WORLD /////////////////////////////////////////////
 
 /// static level data (flash)
-extern const struct Level_static {
-
-  char *name;
+PROGMEM extern const struct Level_static {
+  const char *name;
 
   //byte n_o_guns : BITS_FOR_GUNS;
-  struct {
+  const struct {
     byte x ;//: BITS_FOR_X;
     byte y ;//: BITS_FOR_Y;
     byte dir ;//: 2; // not necessary, but for alingment, sth sth
@@ -142,7 +145,7 @@ extern const struct Level_static {
   } gun[MAX_GUNS];
 
   //byte n_o_telepipes : BITS_FOR_TELEPIPES;
-  struct {
+  const struct {
     byte x ;//: BITS_FOR_X;
     byte y ;//: BITS_FOR_Y;
     byte dest_x ;//: BITS_FOR_X;
@@ -151,7 +154,7 @@ extern const struct Level_static {
   } telepipe[MAX_TELEPIPES];
 
   //byte n_o_turncocks : 2; // =< n_o_telepipes/2
-  struct {
+  const struct {
     byte x ;//: BITS_FOR_X;
     byte y ;//: BITS_FOR_Y;
     byte end1 ;//: BITS_FOR_TELEPIPES;
@@ -160,8 +163,7 @@ extern const struct Level_static {
 
   byte w ;//: BITS_FOR_X;
   byte h ;//: BITS_FOR_Y;
-  char *map[18];
-
+  const char *map[18];
 } levels[];
 
 /// dynamic levels data (sram) 
@@ -342,7 +344,22 @@ byte read_map(char x,char y) {
 ////////////////////////////////////////////////////////////
 /// messages stuff:
 ////////////////////////////////////////////////////////////
-void set_message(char *msg, byte expires) {
+PROGMEM const char msg_good[]="GOOD.";
+PROGMEM const char msg_wow[]="WOW!";
+PROGMEM const char msg_die[]="YOU DIE.";
+PROGMEM const char msg_shift[]="shift!";
+PROGMEM const char msg_no_unshift[]="can't unshift";
+PROGMEM const char msg_unshift[]="unshift!"; 
+PROGMEM const char msg_gotkey[]="picked a key";
+PROGMEM const char msg_unlock[]="door unlocks";
+PROGMEM const char msg_locked[]="it's locked";
+PROGMEM const char msg_findturn[]="find a turncock";
+PROGMEM const char msg_turnturn[]="tuncock turned";
+PROGMEM const char msg_lvlcomplete[]="LEVEL COMPLETED";
+PROGMEM const char msg_gameover[]="GAME OVER";
+PROGMEM const char msg_victoly[]="VICTOLY!";
+
+void set_message(const char *msg, byte expires) {
   byte i,l;
   l=(byte)strlen(msg);
   for(i=0;i<l;i++) cur_level.message.text[i]=msg[i];
@@ -352,21 +369,27 @@ void set_message(char *msg, byte expires) {
   cur_level.message.expires=expires;
 }
 
-inline void msg_cool() {
+inline void msg_cool() {  
+  /*
   switch(random()%3) {
   case 0: set_message("GOOD!",2);break;
   case 1: set_message("COOL!",2);break;
   case 2: set_message("well done.",2);break;
-  }
+  }*/
+  set_message(msg_good,2);
+  
   /// todo a tone depending on actor's type?
 }
 
 inline void msg_telepipe() {
+  /*
   switch(random()%3) {
   case 0: set_message("WHOA!",2);break;
   case 1: set_message("WOW!",2);break;
   case 2: set_message("WEE!",2);break;
   }
+  */
+  set_message(msg_wow,2);
   /// todo a STRANGE tone!
 }
 
@@ -457,8 +480,9 @@ void ___n(byte active, byte passive) { /* pfff. */ }
 
 /// actor dies
 void _die(byte active, byte passive) {
-  if(random()%2) set_message("YOU DIE!",16);
-  else  set_message("OOPS... YOU DIE",16);
+//  if(random()%2)
+  set_message(msg_die,16);
+//  else  set_message("OOPS... YOU DIE",16);
   /// todo dzwiek
   cur_level.game_state=FADE_OUT_DEATH;
 }
@@ -491,21 +515,21 @@ void _psh(byte active, byte passive) {
 /// trying to push + shapeshift to triangle (actor only)
 void _pst(byte active, byte passive) {
   cur_level.thing[active].type=ACTOR_TRIANGLE;
-  set_message("shift!",2);
+  set_message(msg_shift,2);
   _psh(active,passive);
 }
 
 /// trying to push + shapeshift to disc (actor only)
 void _psd(byte active, byte passive) {
   cur_level.thing[active].type=ACTOR_DISC;
-  set_message("shift!",2);
+  set_message(msg_shift,2);
   _psh(active,passive);
 }
 
 
 /// can't unshift (actor only)
 void _nus(byte active, byte passive) {
-  set_message("can't unshift",5);
+  set_message(msg_no_unshift,5);
   /// todo dzwiek niski
 }
 
@@ -513,7 +537,7 @@ void _nus(byte active, byte passive) {
 void _ssq(byte active, byte passive) {
   cur_level.thing[passive].type=NOTHING;
   cur_level.thing[active].type=ACTOR_SQUARE;
-  set_message("unshift!",2);
+  set_message(msg_unshift,2);
   /// todo dzwiek?
 }
 
@@ -521,7 +545,7 @@ void _ssq(byte active, byte passive) {
 void _str(byte active, byte passive) {
   cur_level.thing[passive].type=NOTHING;
   cur_level.thing[active].type=ACTOR_TRIANGLE;
-  set_message("unshift!",2);
+  set_message(msg_unshift,2);
   /// todo dzwiek?
 }
 
@@ -542,9 +566,9 @@ void _sto(byte active, byte passive) {
 void _pck(byte active, byte passive) {
   cur_level.thing[passive].type=NOTHING;
   if(cur_level.keys++==0)
-    set_message("got a key now",5);
-  else
-    set_message("picked a key",5);
+    set_message(msg_gotkey,5);
+  else set_message(msg_gotkey,5);
+    //set_message("picked a key",5);
     /// todo dzwiek wysoki
 }
 
@@ -553,10 +577,10 @@ void _opn(byte active, byte passive) {
   if(cur_level.keys>0) {
     cur_level.keys--;
     cur_level.thing[passive].type=BOOM; // ??
-    set_message("door unlocks",4);
+    set_message(msg_unlock,4);
     /// todo dzwiek wysoki
   } else {
-    set_message("it's locked",4);
+    set_message(msg_locked,4);
     /// todo dzwiek niski
   }
 }
@@ -592,7 +616,7 @@ void _tlp(byte active, byte i) {
     }
     return;
   } else {
-    set_message("find a turncock",5);
+    set_message(msg_findturn,5);
     /// todo niski dzwiek
     return;
   }
@@ -603,7 +627,7 @@ void _trn(byte active, byte i) {
   if(i>=MAX_TELEPIPES/2) return; // not possible?
   cur_level.telepipe[FLASH(levels[cur_level.index].turncock[i].end1)].is_open=1;
   cur_level.telepipe[FLASH(levels[cur_level.index].turncock[i].end2)].is_open=1;
-  set_message("turncock turned",4);
+  set_message(msg_turnturn,4);
 }
 
 /// boom (active explodes)
@@ -784,7 +808,6 @@ void world_step() {
     if(FLASH(levels[cur_level.index].gun[i].max_count==0)) continue;
     ///
     if(++cur_level.gun[i].count>=FLASH(levels[cur_level.index].gun[i].max_count)) {
-      //set_message("POW!",2);
       cur_level.gun[i].count=0;
       j=first_free_slot(); /// this will be the index of new projectile.
       if(j<MAX_THINGS) { /// don't bother if there's no place for one...
@@ -1177,7 +1200,7 @@ void loop() {
       if(cur_level.squares_left==0
 	 && cur_level.triangles_left==0
 	 && cur_level.discs_left==0) {
-	set_message("LEVEL COMPLETED",11);
+	set_message(msg_lvlcomplete,11);
 	cur_level.game_state=FADE_OUT_LEVELUP;
       }
       joystick.dir=dCENTER;
@@ -1215,7 +1238,7 @@ void loop() {
       break;
 
     case GAME_OVER:
-      set_message("GAME OVER",1); // ;)
+      set_message(msg_gameover,1); // ;)
       draw_board(cur_level.cx,cur_level.cy,0);
       if(--cur_level.disp_courtain==0) {      
 	cur_level.game_state=TITLE;	
@@ -1231,7 +1254,7 @@ void loop() {
       break;
 
     case VICTOLY:
-      set_message("VICTOLY!",1); // ;)      
+      set_message(msg_victoly,1); // ;)      
       draw_board(cur_level.cx,cur_level.cy,0);
       break;
 
@@ -1252,6 +1275,63 @@ void loop() {
 #define EMPTY {0,0,0,0,0} /// :D
 #define EMPTY_TRN {0,0,0,0}  /// ;)
 
+/// what follows now is a way to trick the tricky dick.
+const PROGMEM char m11[]="......................";
+const PROGMEM char m12[]=".....##############...";
+const PROGMEM char m13[]="....#M....I........#.."; 	
+const PROGMEM char m14[]=".####...####..&....#..";
+const PROGMEM char m15[]="#(.O....#..#....###..."; 
+const PROGMEM char m16[]="#<.V....#..#.;..#....."; 
+const PROGMEM char m17[]="#[.H....#...####......";
+const PROGMEM char m18[]=".#######..............";
+
+const PROGMEM char m21[]="..#..[..........#..";
+const PROGMEM char m22[]=".#M..[.....&.....#.";
+const PROGMEM char m23[]="#....[.........V..#";
+const PROGMEM char m24[]=".H...[...........<[";
+const PROGMEM char m25[]="###################";
+
+const PROGMEM char m31[]=".......M###..(..#.|.###.";
+const PROGMEM char m32[]=".......##d#######.L-#.#r";
+const PROGMEM char m33[]="......#.............###.";
+const PROGMEM char m34[]="...####.................";
+const PROGMEM char m35[]="###(.O....#......#######";
+const PROGMEM char m36[]="...<......#..&..#....V..";
+const PROGMEM char m37[]="--7.....#.#.....#.T-----";
+const PROGMEM char m38[]="..|.....###..O..#.|.....";
+const PROGMEM char m39[]="..L------7#.....#.|.....";
+
+const PROGMEM char m41[]="...##....###[###...";
+const PROGMEM char m42[]="........#.......#..";
+const PROGMEM char m43[]="#########.[...H.###";
+const PROGMEM char m44[]=".............l..[..";
+const PROGMEM char m45[]="###..####.&.....###";
+const PROGMEM char m46[]="..#..#..#.......#..";
+const PROGMEM char m47[]="..#H.#...###[###...";
+const PROGMEM char m48[]="..#..#.....#.#.....";
+
+const PROGMEM char m51[]=".....Th7.....";
+const PROGMEM char m52[]="#####|#|#####";
+const PROGMEM char m53[]="#....|#.&....";
+const PROGMEM char m54[]="#....|#...-7.";
+const PROGMEM char m55[]="#...-J#....|.";
+const PROGMEM char m56[]="#.;...#....|.";
+const PROGMEM char m57[]="#.....#....|.";
+const PROGMEM char m58[]="###########|#";
+const PROGMEM char m59[]="...........|.";
+const PROGMEM char m5a[]=".VHH.......|.";
+const PROGMEM char m5b[]="...........|.";
+const PROGMEM char m5c[]=".<[[.T-----J.";
+const PROGMEM char m5d[]=".....|.<..V..";
+const PROGMEM char m5e[]=".....|.<..V..";
+const PROGMEM char m5f[]=".....|.<..V..";
+const PROGMEM char m5g[]=".#I##|#######";
+const PROGMEM char m5h[]="u#...|......#";
+const PROGMEM char m5i[]="..<......V...";
+
+const PROGMEM char emptstr[]="";
+/// he_he. WAT?
+
 PROGMEM const struct Level_static levels[] = {
 
   /// level 0 ///////////////////////////////
@@ -1265,19 +1345,9 @@ PROGMEM const struct Level_static levels[] = {
 
    /// map:
    22,8, /// w,h
-   {"......................",
-    ".....##############...",
-    "....#M....I........#..", 	
-    ".####...####..&....#..",
-    "#(.O....#..#....###...", 
-    "#<.V....#..#.;..#.....", 
-    "#[.H....#...####......",
-    ".#######..............",
-    "", "", "", "", "",
-    "", "", "", "", ""
-   }
+   {m11,m12,m13,m14,m15,m16,m17,m18}
   },
-
+ 
   /// level 1 /////////////////////////////
   {
     "holes",
@@ -1290,14 +1360,10 @@ PROGMEM const struct Level_static levels[] = {
 
     /// map
     19,5,
-    {"..#..[..........#..",
-     ".#M..[.....&.....#.",
-     "#....[.........V..#",
-     ".H...[...........<[",
-     "###################",
-     "", "", "", "", "",
-     "", "", "", "", "",
-     "", "", ""
+    {m21,m22,m23,m24,m25,
+    emptstr,emptstr,emptstr,emptstr,emptstr,
+    emptstr,emptstr,emptstr,emptstr,emptstr,
+    emptstr,emptstr,emptstr
     }
   },
 
@@ -1316,19 +1382,11 @@ PROGMEM const struct Level_static levels[] = {
 
     /// map
     24,9,    
-    {".......M###..(..#.|.###.",
-     ".......##d#######.L-#.#r",
-     "......#.............###.",
-     "...####.................",
-     "###(.O....#......#######",
-     "...<......#..&..#....V..",
-     "--7.....#.#.....#.T-----",
-     "..|.....###..O..#.|.....",
-     "..L------7#.....#.|.....",
-     "", "", "", "", "",
-     "", "", "", ""      
+    {m31,m32,m33,m34,m35,m36,m37,m38,m39,
+     emptstr,emptstr,emptstr,emptstr,emptstr, emptstr,emptstr,emptstr
     }
   },
+
 
   /// level 3 ///////////////////////////////
   {"panic",
@@ -1341,20 +1399,11 @@ PROGMEM const struct Level_static levels[] = {
 
    /// map:
    19,8, /// w,h
-   {
-	"...##....###[###...",
-	"........#.......#..",
-	"#########.[...H.###",
-	".............l..[..",
-	"###..####.&.....###",
-	"..#..#..#.......#..",
-	"..#H.#...###[###...",
-	"..#..#.....#.#.....",
-	"", "", "", "", "",
-	"", "", "", "", ""
+   { m41,m42,m43,m44,m45,m46,m47,m48,
+     emptstr,emptstr,emptstr,emptstr,emptstr,
+     emptstr,emptstr,emptstr,emptstr,emptstr
    }
   },
-
   /// LEVEL 4 //////////////////////////////////////
   {
     "pipes",
@@ -1375,25 +1424,7 @@ PROGMEM const struct Level_static levels[] = {
 
     /// map
     13,18,
-    {".....Th7.....",
-     "#####|#|#####",
-     "#....|#.&....",
-     "#....|#...-7.",
-     "#...-J#....|.",
-     "#.;...#....|.",
-     "#.....#....|.",
-     "###########|#",
-     "...........|.",
-     ".VHH.......|.",
-     "...........|.",
-     ".<[[.T-----J.",
-     ".....|.<..V..",
-     ".....|.<..V..",
-     ".....|.<..V..",
-     ".#I##|#######",
-     "u#...|......#",
-     "..<......V..."
-    }
+    {m51,m52,m53,m54,m55,m56,m57,m58,m59,m5a,m5b,m5c,m5d,m5e,m5f,m5g,m5h,m5i}
   }
 };
 
