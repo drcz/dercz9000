@@ -10,15 +10,9 @@ gcc curses-test.c -o test -lncurses
 I have created sprites in gimp, tested their look in js version (cf js-gfx-test/),
 and converted to C table with some python/ruby scripts (cf tools).
 
-However the current C version uses way too much memory:
+I have many problems with the program on arduino (this PROGMEM stuff is pretty tricky!),
+but the basics now seem to work, look here: https://vine.co/v/iUl0FlKJLL2
 
-$ avr-size torus.cpp.elf 
-
-   text	  data  bss  dec    hex	  filename
-   
-  16314	  1276  238  17828  45a4  torus.cpp.elf
-
--- if I'm computing the shit correctly we shoud have data+bss < 512B
-(actually it should be less as we need some place for a call stack?).
+(There's still a lot to be done, unfortunately I won't have access to my arduino for the next month...)
 
 TBC

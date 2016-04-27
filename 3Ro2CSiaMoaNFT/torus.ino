@@ -8,7 +8,7 @@
 /// -- check out the original (my first LD, made in js in 48h):
 /// ludumdare.com/compo/ludum-dare-35/?action=preview&uid=88774
 ///
-///             Alicante 2016.04.23-25, drcz@tlen.pl
+///             Alicante 2016.04.23-27, drcz@tlen.pl
 //////////////////////////////////////////////////////////////////
 
 /// License: public domain, only USE AT YOUR OWN RISK!
@@ -17,9 +17,17 @@
 
 /// The following code is a collage of D9K-the_pchanina.ino
 /// excerpts, with some ruby generated code, with a grain of
-/// cheap tricks. At the moment it's great mess.
+/// cheap tricks. At the moment it's great mess (and not working)
 
-/// todo cleanup
+/// HAHA! at least some part of it does work...
+/// look here https://vine.co/v/iUl0FlKJLL2 :D
+
+/// todo some sprite glitches [check digitalization prog]
+/// todo messages not working [perhaps sth with const char*]
+/// todo nice "inverted" fonts
+/// todo some crude sounds [pick freqs for C,F,G or sth]
+/// todo add remaining levels
+/// todo code cleanup
 
 #include <avr/pgmspace.h>
 /// flash memory access
@@ -70,7 +78,7 @@ enum {dUP,dLEFT,dDOWN,dRIGHT,dUP2,dDOWN2,dCENTER};
 #define MAX_THINGS 80 // ? <=57 + all the projectiles and booms.
 #define MAX_MESSAGE 15
 
-#define MAX_LEVELS 5 // !!
+#define MAX_LEVELS 2 /// 5 // !!
 
 struct {
   byte dir : 3;
@@ -315,6 +323,7 @@ byte index_of_thing_at(byte x,byte y) {
 /// notice x and y are signed here.
 byte read_map(char x,char y) {
   byte i;
+  char *p,buf[23];
   // normalize the position (we are on torus, y'know)
   while(x<0) x+=cur_level.w;
   while(x>=cur_level.w) x-=cur_level.w;
@@ -324,7 +333,9 @@ byte read_map(char x,char y) {
   i=index_of_thing_at(x,y);
   if(i<MAX_THINGS) return(cur_level.thing[i].type);
   // if none found, check the static map
-  switch(FLASH(levels[cur_level.index].map[y][x])) {
+  p=(char *)pgm_read_word(&levels[cur_level.index].map[y]);
+  strcpy_P (buf,p);
+  switch(buf[x]) {
   case '#': return(WALL);
   case '-': return(PIPE_H);
   case '|': return(PIPE_V);
@@ -360,6 +371,7 @@ PROGMEM const char msg_gameover[]="GAME OVER";
 PROGMEM const char msg_victoly[]="VICTOLY!";
 
 void set_message(const char *msg, byte expires) {
+  /*
   byte i,l;
   l=(byte)strlen(msg);
   for(i=0;i<l;i++) cur_level.message.text[i]=msg[i];
@@ -367,6 +379,7 @@ void set_message(const char *msg, byte expires) {
   cur_level.message.text[l]=0; //?
   cur_level.message.length=l;
   cur_level.message.expires=expires;
+  */
 }
 
 inline void msg_cool() {  
@@ -844,6 +857,7 @@ void world_step() {
 /// acha! jeszcze level!
 void initialize_level(byte n) {
   byte i,j;
+  char *p,buf[23]; /// !!!
   cur_level.index=n;
   cur_level.w=FLASH(levels[n].w);
   cur_level.h=FLASH(levels[n].h);
@@ -869,8 +883,10 @@ void initialize_level(byte n) {
   }
   /// now set up the things
   for(j=0;j<cur_level.h;j++)
-    for(i=0;i<cur_level.w;i++)
-      switch(FLASH(levels[n].map[j][i])) {
+    for(i=0;i<cur_level.w;i++) {
+    p=(char *)pgm_read_word(&levels[n].map[j]);
+    strcpy_P (buf,p);
+    switch(buf[i]) {
       case ';': create_thing(KEY,i,j); break;
       case 'I': create_thing(DOOR,i,j); break;
       case 'M': create_thing(MACHINE,i,j); break;
@@ -897,6 +913,7 @@ void initialize_level(byte n) {
       default:
 	break;
       }
+    }
   /// something something.
   cur_level.actor_facing=dLEFT;
   set_message((char *)FLASH(levels[n].name),13);
@@ -1174,14 +1191,19 @@ void display_d9k_logo(); /// a bit narcisstic, no?
 /// MAIN /////////////////////////////////////////////////////
 
 void setup() {
-//  randomSeed(analogRead(0)); /// haha! magick.
+  randomSeed(analogRead(0)); /// haha! magick.
   setup_tv();
   setup_gamepad();
-//  display_d9k_logo();  
+  //display_d9k_logo();  
   cur_level.game_state=TITLE;
   cur_level.disp_courtain=0;
   cur_level.actor_frame=0;
   cur_level.anim_frame=0;
+
+  cur_level.message.text[0]=0; //?
+  cur_level.message.length=0;
+  cur_level.message.expires=0;
+  
   //// cos jeszczo?
 }
 
@@ -1290,7 +1312,7 @@ const PROGMEM char m22[]=".#M..[.....&.....#.";
 const PROGMEM char m23[]="#....[.........V..#";
 const PROGMEM char m24[]=".H...[...........<[";
 const PROGMEM char m25[]="###################";
-
+/*
 const PROGMEM char m31[]=".......M###..(..#.|.###.";
 const PROGMEM char m32[]=".......##d#######.L-#.#r";
 const PROGMEM char m33[]="......#.............###.";
@@ -1328,7 +1350,7 @@ const PROGMEM char m5f[]=".....|.<..V..";
 const PROGMEM char m5g[]=".#I##|#######";
 const PROGMEM char m5h[]="u#...|......#";
 const PROGMEM char m5i[]="..<......V...";
-
+*/
 const PROGMEM char emptstr[]="";
 /// he_he. WAT?
 
@@ -1366,7 +1388,7 @@ PROGMEM const struct Level_static levels[] = {
     emptstr,emptstr,emptstr
     }
   },
-
+/*
   /// level 2 ////////////////////////////
   {
     "guns of torxton",
@@ -1426,6 +1448,7 @@ PROGMEM const struct Level_static levels[] = {
     13,18,
     {m51,m52,m53,m54,m55,m56,m57,m58,m59,m5a,m5b,m5c,m5d,m5e,m5f,m5g,m5h,m5i}
   }
+  */
 };
 
 
@@ -2339,7 +2362,6 @@ PROGMEM const byte dercz9000[] = {
 
 void display_d9k_logo() {  
   TV.clear_screen();  
-/*
   TV.bitmap(0,0,dercz9000);
   delay(2012);
   TV.tone(128,1000);
@@ -2349,7 +2371,7 @@ void display_d9k_logo() {
   TV.tone(384,1000);
   delay(1000);  
   TV.tone(512,900);
-  */
+  
 }
 
 /// the end.
