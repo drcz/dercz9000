@@ -7,7 +7,7 @@ gcc curses-test.c -o test -lncurses
 
 ./test
 
-I have created sprites in gimp, tested their look in js version (cf js-gfx-test/),
+I have created sprites in gimp, tested their look in js version (cf js-gfx-test/)  http://drcz.github.io/dercz9000/js-gfx-test/,
 and converted to C table with some python/ruby scripts (cf tools).
 
 I have many problems with the program on arduino (this PROGMEM stuff is pretty tricky!),
